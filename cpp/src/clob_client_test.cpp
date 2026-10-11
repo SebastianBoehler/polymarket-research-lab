@@ -1,4 +1,4 @@
-#include <clob_client.hpp>
+#include <polymarket/clob_client.hpp>
 #include <iostream>
 #include <iomanip>
 
@@ -32,11 +32,11 @@ int main()
     // Test 2: Get markets
     std::cout << "\n2. Testing get_markets()..." << std::endl;
     auto markets = client.get_markets();
-    std::cout << "   ✓ Fetched " << markets.size() << " markets" << std::endl;
+    std::cout << "   ✓ Fetched " << markets.data.size() << " markets" << std::endl;
 
-    if (!markets.empty())
+    if (!markets.data.empty())
     {
-        const auto &m = markets[0];
+        const auto &m = markets.data[0];
         std::cout << "   First market: " << m.question.substr(0, 60) << "..." << std::endl;
         std::cout << "   Condition ID: " << m.condition_id << std::endl;
 

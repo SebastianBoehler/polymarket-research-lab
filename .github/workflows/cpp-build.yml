@@ -3,27 +3,38 @@ name: C++ Build
 on:
   push:
     branches: [main, master]
-    paths:
-      - "cpp/**"
-      - ".github/workflows/cpp-build.yml"
   pull_request:
     branches: [main, master]
-    paths:
-      - "cpp/**"
-      - ".github/workflows/cpp-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpp-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake build-essential libssl-dev libcurl4-openssl-dev
+          sudo apt-get install -y cmake build-essential libssl-dev libcurl4-openssl-dev zlib1g-dev
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install openssl@3
 
       - name: Configure CMake
         working-directory: cpp
@@ -31,4 +42,7 @@ jobs:
 
       - name: Build
         working-directory: cpp
-        run: cmake --build build --parallel $(nproc)
+        run: cmake --build build --parallel 4
+
+      - name: Run offline tests
+        run: ctest --test-dir cpp/build --output-on-failure

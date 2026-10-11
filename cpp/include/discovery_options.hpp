@@ -1,7 +1,7 @@
 #pragma once
 
 #include <example_strategies.hpp>
-#include <types.hpp>
+#include <polymarket/types.hpp>
 
 #include <chrono>
 #include <optional>

@@ -13,8 +13,8 @@
  *   NUM_ORDERS       - Number of orders to benchmark (default: 5)
  */
 
-#include <order_signer.hpp>
-#include <http_client.hpp>
+#include <polymarket/order_signer.hpp>
+#include <polymarket/http_client.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cstdlib>

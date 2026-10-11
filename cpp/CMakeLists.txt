@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.22)
 
 # Policy for older CMake compatibility in dependencies
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
@@ -88,9 +88,8 @@ endif()
 
 include(FetchContent)
 
-# Polymarket C++ Client library. Defaulting to main keeps execution code on
-# the newest client; override POLYMARKET_CLIENT_GIT_TAG for reproducible builds.
-set(POLYMARKET_CLIENT_GIT_TAG "main" CACHE STRING "Git ref for polymarket-cpp-client")
+# Use the released client; override the ref explicitly when testing upgrades.
+set(POLYMARKET_CLIENT_GIT_TAG "v3.0.0" CACHE STRING "Git ref for polymarket-cpp-client")
 set(FETCHCONTENT_UPDATES_DISCONNECTED_POLYMARKET_CLIENT OFF CACHE BOOL
     "Always check for polymarket-cpp-client updates during configure" FORCE)
 set(POLYMARKET_CLIENT_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

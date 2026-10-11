@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_dir="${repo_root}/cpp/build"
-git_ref="${POLYMARKET_CLIENT_GIT_TAG:-main}"
+git_ref="${POLYMARKET_CLIENT_GIT_TAG:-v3.0.0}"
 
 rm -rf \
   "${build_dir}/_deps/polymarket_client-src" \

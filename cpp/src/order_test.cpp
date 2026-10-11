@@ -11,8 +11,8 @@
  *   PRIVATE_KEY=0x... FUNDER_ADDRESS=0x... ./order_test [--live]
  */
 
-#include <order_signer.hpp>
-#include <http_client.hpp>
+#include <polymarket/order_signer.hpp>
+#include <polymarket/http_client.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cstdlib>
