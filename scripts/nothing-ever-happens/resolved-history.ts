@@ -1,3 +1,6 @@
+import { fetchOutcome } from "./outcome-api";
+import type { OutcomeCache } from "./storage";
+
 type Args = {
   lookbackHours: number;
   limit: number;
@@ -60,7 +63,9 @@ function parseArgs(argv: string[]): Args {
 
 async function fetchClosedMarkets(args: Args): Promise<Row[]> {
   const rows: Row[] = [];
-  for (let offset = 0; rows.length < args.limit; offset += args.pageSize) {
+  const cache: OutcomeCache = {};
+  let examined = 0;
+  for (let offset = 0; examined < args.limit; offset += args.pageSize) {
     const url = new URL(GAMMA_MARKETS);
     url.searchParams.set("closed", "true");
     url.searchParams.set("limit", String(args.pageSize));
@@ -73,7 +78,8 @@ async function fetchClosedMarkets(args: Args): Promise<Row[]> {
 
     let sawOlder = false;
     for (const market of batch) {
-      const row = normalizeMarket(market);
+      if (examined++ >= args.limit) break;
+      const row = await normalizeMarket(market, cache);
       if (!row) continue;
       if (row.closedTime < args.minClosedTime) {
         sawOlder = true;
@@ -88,41 +94,18 @@ async function fetchClosedMarkets(args: Args): Promise<Row[]> {
   return rows;
 }
 
-function normalizeMarket(market: GammaMarket): Row | null {
-  if (!market.closed || !market.closedTime) return null;
-  const outcomes = parseJsonArray(market.outcomes);
-  const prices = parseJsonArray(market.outcomePrices).map(Number);
-  if (outcomes.length !== 2 || prices.length !== 2) return null;
-
-  const normalizedOutcomes = outcomes.map((item) => String(item).trim().toLowerCase());
-  if (normalizedOutcomes[0] !== "yes" || normalizedOutcomes[1] !== "no") return null;
-
-  const yesPrice = prices[0];
-  const noPrice = prices[1];
-  if (!Number.isFinite(yesPrice) || !Number.isFinite(noPrice)) return null;
-  if (yesPrice !== 1 && noPrice !== 1) return null;
-
+async function normalizeMarket(market: GammaMarket, cache: OutcomeCache): Promise<Row | null> {
+  if (!market.closed || !market.closedTime || !market.conditionId) return null;
   const closedTime = parseClosedTime(market.closedTime);
   if (!closedTime) return null;
-
+  const { outcome } = await fetchOutcome({
+    id: market.conditionId, title: market.question ?? "", slug: "", category: classifyMarket(market),
+  }, cache, 100);
+  if (outcome !== "yes" && outcome !== "no") return null;
   return {
-    question: market.question ?? "",
-    conditionId: market.conditionId ?? "",
-    closedTime,
-    category: classifyMarket(market),
-    winner: noPrice === 1 ? "no" : "yes",
+    question: market.question ?? "", conditionId: market.conditionId,
+    closedTime, category: classifyMarket(market), winner: outcome,
   };
-}
-
-function parseJsonArray(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw !== "string") return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
 }
 
 function parseClosedTime(raw: string): Date | null {
@@ -164,8 +147,7 @@ function match(text: string, needles: string[]): boolean {
 
 async function fetchJson<T>(url: string): Promise<T> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await fetch(url, { headers: { "User-Agent": "polymarket-research-lab/1.0" } });
-    if (response.status === 422) return [] as T;
+    const response = await fetch(url, { headers: { "User-Agent": "polymarket-research-lab/1.0" }, signal: AbortSignal.timeout(15000) });
     if (response.status === 429) {
       await sleep(500 * (attempt + 1));
       continue;
@@ -192,7 +174,8 @@ function render(rows: Row[], args: Args): string {
     "# Nothing-ever-happens resolved-history check",
     "",
     `- Window: last ${args.lookbackHours} hours since ${args.minClosedTime.toISOString()}`,
-    `- Markets: ${rows.length} resolved binary Yes/No markets`,
+    `- Markets: ${rows.length} verified binary winners, at most ${args.limit} closed markets examined`,
+    "- Closed-time sample, not all resolved markets. Split payouts and missing resolution evidence are excluded.",
     `- NO resolved rate: ${pct(noWins, rows.length)} (${noWins}/${rows.length})`,
     "",
     "| Category | Markets | NO Rate | YES | NO |",

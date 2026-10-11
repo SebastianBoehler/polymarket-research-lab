@@ -33,7 +33,7 @@ import {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface Opportunity {
-  type: "intra_spread" | "cross_platform_arb" | "stale_price" | "timezone_edge" | "category_inefficiency";
+  type: "intra_spread" | "cross_platform_candidate" | "stale_price" | "timezone_edge" | "category_inefficiency";
   score: number; // 0-100 composite score
   title: string;
   description: string;
@@ -116,7 +116,7 @@ function findIntraSpreadOpportunities(markets: NormalizedMarket[]): Opportunity[
   const opportunities: Opportunity[] = [];
 
   for (const m of markets) {
-    if (m.yesPrice <= 0 || m.noPrice <= 0) continue;
+    if (m.priceSource === "gamma" || m.spread === null || m.yesPrice <= 0 || m.noPrice <= 0) continue;
 
     const combined = m.yesPrice + m.noPrice;
     // If YES + NO < 0.97, there's a potential arb (buy both for < $1, redeem for $1)
@@ -136,7 +136,7 @@ function findIntraSpreadOpportunities(markets: NormalizedMarket[]): Opportunity[
     }
 
     // Wide spread (> 5%) indicates potential mispricing
-    if (m.spread > 0.05 && m.volume > 500) {
+    if (m.spread !== null && m.spread > 0.05 && m.volume > 500) {
       opportunities.push({
         type: "intra_spread",
         score: Math.min(m.spread * 200, 80),
@@ -158,18 +158,18 @@ function findCrossMarketOpportunities(pairs: CrossMarketPair[]): Opportunity[] {
   const opportunities: Opportunity[] = [];
 
   for (const pair of pairs) {
-    if (!pair.arbOpportunity) continue;
+    if (pair.grossPairedDiscount <= 0.02) continue;
 
-    const edge = pair.arbEdge * 100;
+    const edge = pair.grossPairedDiscount * 100;
     opportunities.push({
-      type: "cross_platform_arb",
+      type: "cross_platform_candidate",
       score: Math.min(edge * 15, 100),
-      title: `Cross-platform arb: ${pair.polymarket.title}`,
-      description: `PM YES=${pair.polymarket.yesPrice.toFixed(2)} vs Kalshi YES=${pair.kalshi.yesPrice.toFixed(2)} | Edge: ${edge.toFixed(1)}¢`,
+      title: `Contract review candidate: ${pair.polymarket.title}`,
+      description: `PM YES=${pair.polymarket.yesPrice.toFixed(2)} vs Kalshi YES=${pair.kalshi.yesPrice.toFixed(2)} | Gross discount: ${edge.toFixed(1)}¢; settlement rules unverified`,
       markets: [pair.polymarket, pair.kalshi],
       edge,
-      confidence: pair.similarity > 0.7 ? "high" : pair.similarity > 0.5 ? "medium" : "low",
-      actionable: true,
+      confidence: "low",
+      actionable: false,
       metadata: {
         similarity: pair.similarity,
         priceDiff: pair.priceDiff,
@@ -221,7 +221,7 @@ function findTimezoneOpportunities(markets: NormalizedMarket[], tz: TimezoneAnal
     );
 
     if (usMarkets.length > 0) {
-      const wideSpread = usMarkets.filter((m) => m.spread > 0.03);
+      const wideSpread = usMarkets.filter((m): m is NormalizedMarket & { spread: number } => m.spread !== null && m.spread > 0.03);
       if (wideSpread.length > 0) {
         opportunities.push({
           type: "timezone_edge",
@@ -244,7 +244,7 @@ function findTimezoneOpportunities(markets: NormalizedMarket[], tz: TimezoneAnal
       (m) => m.category === "crypto" || m.tags.some((t) => t.toLowerCase().includes("crypto") || t.toLowerCase().includes("bitcoin")),
     );
 
-    const stale = cryptoMarkets.filter((m) => m.spread > 0.04);
+    const stale = cryptoMarkets.filter((m): m is NormalizedMarket & { spread: number } => m.spread !== null && m.spread > 0.04);
     if (stale.length > 0) {
       opportunities.push({
         type: "timezone_edge",
@@ -330,7 +330,7 @@ export async function runAnalysis(options?: {
     `Analysis complete at ${new Date().toISOString()}`,
     `Markets: ${polymarketMarkets.length} Polymarket + ${kalshiMarkets.length} Kalshi = ${allMarkets.length} total`,
     `Categories: ${categoryStats.length} unique`,
-    `Cross-market pairs: ${crossMarketPairs.length} (${crossMarketPairs.filter((p) => p.arbOpportunity).length} with arb edge)`,
+    `Cross-market pairs: ${crossMarketPairs.length} (${crossMarketPairs.filter((p) => p.grossPairedDiscount > 0.02).length} with gross paired discount; rules unverified)`,
     `Opportunities found: ${opportunities.length} total, ${actionable.length} actionable, ${highConf.length} high confidence`,
     `Session: ${timezoneAnalysis.currentSession} — ${timezoneAnalysis.recommendation}`,
   ].join("\n");
@@ -367,7 +367,7 @@ export function printReport(report: AnalysisReport): void {
 
     for (const opp of top) {
       const icon =
-        opp.type === "cross_platform_arb"
+        opp.type === "cross_platform_candidate"
           ? "🔗"
           : opp.type === "intra_spread"
             ? "📊"
@@ -387,17 +387,17 @@ export function printReport(report: AnalysisReport): void {
     }
   }
 
-  // Cross-market arb pairs
-  const arbPairs = report.crossMarketPairs.filter((p) => p.arbOpportunity);
-  if (arbPairs.length > 0) {
+  // Unverified contract comparison candidates
+  const reviewPairs = report.crossMarketPairs.filter((p) => p.grossPairedDiscount > 0.02);
+  if (reviewPairs.length > 0) {
     console.log("╠════════════════════════════════════════════════════════════════════════════╣");
-    console.log("║                    🔗 CROSS-PLATFORM ARB PAIRS                             ║");
+    console.log("║                    🔗 CONTRACT REVIEW CANDIDATES                             ║");
     console.log("╠════════════════════════════════════════════════════════════════════════════╣");
 
-    for (const pair of arbPairs.slice(0, 5)) {
+    for (const pair of reviewPairs.slice(0, 5)) {
       console.log(`║  ${pair.polymarket.title.substring(0, 50)}`.padEnd(79) + "║");
       console.log(
-        `║    PM: YES=${pair.polymarket.yesPrice.toFixed(2)} | Kalshi: YES=${pair.kalshi.yesPrice.toFixed(2)} | Edge: ${(pair.arbEdge * 100).toFixed(1)}¢`.padEnd(
+        `║    PM: YES=${pair.polymarket.yesPrice.toFixed(2)} | Kalshi: YES=${pair.kalshi.yesPrice.toFixed(2)} | Gross discount: ${(pair.grossPairedDiscount * 100).toFixed(1)}¢`.padEnd(
           79,
         ) + "║",
       );

@@ -26,8 +26,9 @@ export function readCache(path: string): OutcomeCache {
     const raw = readFileSync(path, "utf8").trim();
     if (!raw) return {};
     return JSON.parse(raw) as OutcomeCache;
-  } catch {
-    return {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
   }
 }
 
@@ -53,66 +54,41 @@ export function groupRowsByMarket(rows: MarketRow[]): Map<string, MarketRow[]> {
   }
 
   for (const group of grouped.values()) {
-    group.sort((a, b) => {
-      const scanA = Number(a.scan_id ?? "0");
-      const scanB = Number(b.scan_id ?? "0");
-      return scanA - scanB;
-    });
+    for (const row of group) {
+      if (!Number.isFinite(Date.parse(row.timestamp))) throw new Error(`Invalid observation timestamp: ${row.id}`);
+    }
+    group.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   }
   return grouped;
 }
 
-function parseCsv(content: string): MarketRow[] {
-  const lines = content.split(/\r?\n/).filter((line) => line.length > 0);
-  if (lines.length === 0) return [];
-
-  const header = parseCsvLine(lines[0]);
-  const rows: MarketRow[] = [];
-
-  for (let i = 1; i < lines.length; i += 1) {
-    const values = parseCsvLine(lines[i]);
-    if (values.length === 0) continue;
-
-    const row = {} as MarketRow;
-    for (let c = 0; c < header.length; c += 1) {
-      const key = header[c];
-      row[key] = values[c] ?? "";
-    }
-    rows.push(row);
-  }
-
-  return rows;
-}
-
-function parseCsvLine(line: string): string[] {
-  const values: string[] = [];
+export function parseCsv(content: string): MarketRow[] {
+  const records: string[][] = [];
+  let fields: string[] = [];
   let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    const next = line[i + 1];
-
+  let quoted = false;
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i];
     if (char === '"') {
-      if (inQuotes && next === '"') {
-        field += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (char === "," && !inQuotes) {
-      values.push(field);
-      field = "";
-      continue;
-    }
-
-    field += char;
+      if (quoted && content[i + 1] === '"') { field += '"'; i++; }
+      else quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      fields.push(field); field = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && content[i + 1] === "\n") i++;
+      fields.push(field);
+      if (fields.some(value => value.length)) records.push(fields);
+      fields = []; field = "";
+    } else field += char;
   }
-  values.push(field);
-  return values;
+  if (quoted) throw new Error("Unterminated CSV quoted field");
+  if (field.length || fields.length) { fields.push(field); records.push(fields); }
+  const header = records.shift();
+  if (!header) return [];
+  return records.map(values => {
+    if (values.length !== header.length) throw new Error("CSV row does not match its header");
+    return Object.fromEntries(header.map((key, index) => [key, values[index]])) as MarketRow;
+  });
 }
 
 function extractDir(path: string): string {

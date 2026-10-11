@@ -114,6 +114,7 @@ async function initClobClient(): Promise<void> {
 // ─── Market Selection ────────────────────────────────────────────────────────
 
 function scoreMarket(m: NormalizedMarket): number {
+  if (m.spread === null || m.priceSource !== "clob") return 0;
   const spreadPct = m.spread * 100;
   if (spreadPct < MM_MIN_SPREAD_PCT || spreadPct > MM_MAX_SPREAD_PCT) return 0;
   if (m.volume < MM_MIN_VOLUME) return 0;
@@ -155,6 +156,7 @@ async function selectMarkets(): Promise<NormalizedMarket[]> {
 
   console.log(`[MM] Found ${scored.length} candidates, selected top ${selected.length}:`);
   for (const m of selected) {
+    if (m.spread === null) throw new Error(`Missing quote spread: ${m.id}`);
     const spreadPct = m.spread * 100;
     console.log(`  ${m.category.padEnd(15)} | spread=${spreadPct.toFixed(1)}% | vol=${formatUSD(m.volume)} | ${m.title.slice(0, 50)}`);
   }
@@ -384,56 +386,6 @@ function printDashboard(): void {
   console.log("═".repeat(70) + "\n");
 }
 
-// ─── Dry Run Simulation ──────────────────────────────────────────────────────
-
-function simulateFills(): void {
-  // In dry run, probabilistically simulate order fills based on spread
-  for (const [, mm] of managedMarkets) {
-    const spreadPct = mm.market.spread * 100;
-    // Wider spread = lower fill probability per tick
-    // ~5% spread → ~20% fill chance per refresh, ~10% spread → ~10%
-    const fillProb = Math.min(0.3, 2 / spreadPct);
-
-    if (mm.yesOrderId && Math.random() < fillProb) {
-      const shares = MM_SIZE_USDC / mm.yesBidPrice;
-      mm.yesInventory += shares;
-      mm.yesUsdcSpent += MM_SIZE_USDC;
-      stats.ordersFilled++;
-      console.log(`  [SIM] YES filled @ ${mm.yesBidPrice.toFixed(2)} | ${mm.market.title.slice(0, 40)}`);
-      mm.yesOrderId = null;
-    }
-
-    if (mm.noOrderId && Math.random() < fillProb) {
-      const shares = MM_SIZE_USDC / mm.noBidPrice;
-      mm.noInventory += shares;
-      mm.noUsdcSpent += MM_SIZE_USDC;
-      stats.ordersFilled++;
-      console.log(`  [SIM] NO filled @ ${mm.noBidPrice.toFixed(2)} | ${mm.market.title.slice(0, 40)}`);
-      mm.noOrderId = null;
-    }
-
-    // Check round-trip
-    if (mm.yesInventory > 0 && mm.noInventory > 0) {
-      const rtShares = Math.min(mm.yesInventory, mm.noInventory);
-      const yesAvg = mm.yesUsdcSpent / (mm.yesInventory + rtShares); // approx
-      const noAvg = mm.noUsdcSpent / (mm.noInventory + rtShares);
-      const combinedCost = mm.yesBidPrice + mm.noBidPrice;
-      const profit = (1.0 - combinedCost) * rtShares;
-
-      mm.yesInventory -= rtShares;
-      mm.noInventory -= rtShares;
-      mm.roundTrips++;
-      mm.grossProfit += profit;
-      stats.totalRoundTrips++;
-      stats.grossProfit += profit;
-
-      console.log(
-        `  [SIM] 🔄 RT: ${rtShares.toFixed(0)} shares | cost=${combinedCost.toFixed(3)} | profit=${formatUSD(profit)} | ${mm.market.title.slice(0, 40)}`,
-      );
-    }
-  }
-}
-
 // ─── Main Loop ───────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -444,7 +396,7 @@ async function main(): Promise<void> {
   console.log(`  Spread capture: ${(MM_SPREAD_CAPTURE * 100).toFixed(0)}%`);
   console.log(`  Min volume: ${formatUSD(MM_MIN_VOLUME)}`);
   console.log(`  Max inventory: ${formatUSD(MM_MAX_INVENTORY)}`);
-  console.log(`  Mode: ${DRY_RUN ? "DRY RUN (simulated fills)" : "🔴 LIVE TRADING"}`);
+  console.log(`  Mode: ${DRY_RUN ? "DRY RUN (quote preview; no fills or profit validation)" : "🔴 LIVE TRADING"}`);
   console.log();
 
   await initClobClient();
@@ -529,10 +481,6 @@ async function main(): Promise<void> {
       await new Promise((r) => setTimeout(r, 200));
     }
 
-    // Simulate fills in dry run
-    if (DRY_RUN) {
-      simulateFills();
-    }
 
     // Dashboard every 5 ticks
     if (tick % 5 === 0) {

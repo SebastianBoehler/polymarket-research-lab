@@ -16,6 +16,8 @@ function makeMarket(overrides: Partial<NormalizedMarket>): NormalizedMarket {
     yesPrice: 0.5,
     noPrice: 0.5,
     spread: 0,
+    priceSource: "clob",
+    receivedAt: "2026-10-11T12:00:00Z",
     volume: 1000,
     liquidity: 500,
     endDate: null,
@@ -43,7 +45,7 @@ describe("findCrossMarketPairs", () => {
     expect(pairs.length).toBe(0);
   });
 
-  test("should detect arb opportunity when cross-combined < 1", () => {
+  test("should require rules verification despite a cross-platform discount", () => {
     const pm = [makeMarket({ platform: "polymarket", title: "Bitcoin 100k 2025", yesPrice: 0.55, noPrice: 0.42 })];
     const kalshi = [makeMarket({ platform: "kalshi", title: "Bitcoin 100k 2025", yesPrice: 0.50, noPrice: 0.45 })];
 
@@ -51,10 +53,10 @@ describe("findCrossMarketPairs", () => {
     expect(pairs.length).toBeGreaterThan(0);
 
     // Cross combined: min(0.55 + 0.45, 0.42 + 0.50) = min(1.00, 0.92) = 0.92
-    // arbEdge = 1 - 0.92 = 0.08
+    // grossPairedDiscount = 1 - 0.92 = 0.08
     const pair = pairs[0];
-    expect(pair.arbEdge).toBeGreaterThan(0.02);
-    expect(pair.arbOpportunity).toBe(true);
+    expect(pair.grossPairedDiscount).toBeGreaterThan(0.02);
+    expect(pair.rulesVerified).toBe(false);
   });
 
   test("should not flag arb when prices are aligned", () => {
@@ -63,10 +65,10 @@ describe("findCrossMarketPairs", () => {
 
     const pairs = findCrossMarketPairs(pm, kalshi, 0.3);
     expect(pairs.length).toBeGreaterThan(0);
-    expect(pairs[0].arbOpportunity).toBe(false);
+    expect(pairs[0].rulesVerified).toBe(false);
   });
 
-  test("should sort by arbEdge descending", () => {
+  test("should sort by grossPairedDiscount descending", () => {
     const pm = [
       makeMarket({ platform: "polymarket", id: "a", title: "Event A 2025", yesPrice: 0.55, noPrice: 0.42 }),
       makeMarket({ platform: "polymarket", id: "b", title: "Event B 2025", yesPrice: 0.50, noPrice: 0.40 }),
@@ -78,7 +80,7 @@ describe("findCrossMarketPairs", () => {
 
     const pairs = findCrossMarketPairs(pm, kalshi, 0.3);
     for (let i = 1; i < pairs.length; i++) {
-      expect(pairs[i - 1].arbEdge).toBeGreaterThanOrEqual(pairs[i].arbEdge);
+      expect(pairs[i - 1].grossPairedDiscount).toBeGreaterThanOrEqual(pairs[i].grossPairedDiscount);
     }
   });
 });

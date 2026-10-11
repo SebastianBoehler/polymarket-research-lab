@@ -25,7 +25,7 @@ import { writeFileSync, appendFileSync, existsSync, mkdirSync } from "fs";
 import {
   fetchAllPolymarketMarkets,
   fetchKalshiMarkets,
-  enrichWithClobPrices,
+  enrichMarketQuotes,
   computeCategoryStats,
   type NormalizedMarket,
   type CategoryStats,
@@ -96,22 +96,23 @@ function initCsv(path: string, header: string): void {
 
 // ─── Snapshot Writer ─────────────────────────────────────────────────────────
 
-function writeMarketRows(markets: NormalizedMarket[], scanId: number, ts: Date, marketFile: string, spreadFile: string): void {
-  const hourUTC = ts.getUTCHours();
-  const session = getSession(hourUTC);
-  const dayOfWeek = ts.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-  const isoTs = ts.toISOString();
-
+function writeMarketRows(markets: NormalizedMarket[], scanId: number, marketFile: string, spreadFile: string): void {
   let marketBuf = "";
   let spreadBuf = "";
 
   for (const m of markets) {
+    const received = new Date(m.receivedAt);
+    const hourUTC = received.getUTCHours();
+    const session = getSession(hourUTC);
+    const dayOfWeek = received.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
     const combined = m.yesPrice + m.noPrice;
-    const spreadPct = combined > 0 ? (m.spread / combined) * 100 : 0;
+    if (m.spread === null) throw new Error(`Missing executable quote for ${m.id}`);
+    const midpoint = m.yesPrice - m.spread / 2;
+    const spreadPct = (m.spread / midpoint) * 100;
 
     marketBuf +=
       [
-        isoTs,
+        m.receivedAt,
         scanId,
         m.platform,
         csvEscape(m.id),
@@ -136,7 +137,7 @@ function writeMarketRows(markets: NormalizedMarket[], scanId: number, ts: Date, 
     if (m.yesPrice > 0 && m.noPrice > 0 && m.yesPrice < 1 && m.noPrice < 1) {
       spreadBuf +=
         [
-          isoTs,
+          m.receivedAt,
           scanId,
           m.platform,
           csvEscape(m.id),
@@ -185,12 +186,12 @@ function writeCategoryRows(stats: CategoryStats[], scanId: number, ts: Date, cat
 // ─── Main Loop ───────────────────────────────────────────────────────────────
 
 async function scan(scanId: number, marketFile: string, catFile: string, spreadFile: string): Promise<{ marketCount: number; catCount: number }> {
-  const ts = new Date();
-
   // Fetch Polymarket
   let pmMarkets = await fetchAllPolymarketMarkets(MAX_PAGES);
   if (pmMarkets.length > 0) {
-    pmMarkets = await enrichWithClobPrices(pmMarkets, 15, 150);
+    const quotes = await enrichMarketQuotes(pmMarkets, 15, 150);
+    pmMarkets = quotes.markets;
+    appendFileSync(`${OUT_DIR}/quote-failures.jsonl`, quotes.failures.map(f => JSON.stringify({scanId, ...f}) + "\n").join(""));
   }
 
   // Fetch Kalshi
@@ -201,19 +202,23 @@ async function scan(scanId: number, marketFile: string, catFile: string, spreadF
 
   const allMarkets = [...pmMarkets, ...kalshiMarkets];
   const stats = computeCategoryStats(allMarkets);
+  appendFileSync(`${OUT_DIR}/market-observations.jsonl`, allMarkets.map(m => JSON.stringify({schemaVersion: 1, scanId, ...m}) + "\n").join(""));
 
-  writeMarketRows(allMarkets, scanId, ts, marketFile, spreadFile);
-  writeCategoryRows(stats, scanId, ts, catFile);
+  writeMarketRows(allMarkets, scanId, marketFile, spreadFile);
+  writeCategoryRows(stats, scanId, new Date(), catFile);
 
   return { marketCount: allMarkets.length, catCount: stats.length };
 }
 
 async function main(): Promise<void> {
+  if (!Number.isFinite(INTERVAL_MS) || INTERVAL_MS <= 0 || !Number.isInteger(MAX_PAGES) || MAX_PAGES <= 0) {
+    throw new Error("INTERVAL_MS must be positive; MAX_PAGES must be a positive integer");
+  }
   ensureDir(OUT_DIR);
 
-  const marketFile = `${OUT_DIR}/market-snapshots.csv`;
-  const catFile = `${OUT_DIR}/category-snapshots.csv`;
-  const spreadFile = `${OUT_DIR}/spread-timeseries.csv`;
+  const marketFile = `${OUT_DIR}/market-snapshots-v2.csv`;
+  const catFile = `${OUT_DIR}/category-snapshots-v2.csv`;
+  const spreadFile = `${OUT_DIR}/spread-timeseries-v2.csv`;
 
   initCsv(marketFile, MARKET_HEADER);
   initCsv(catFile, CATEGORY_HEADER);
@@ -243,19 +248,26 @@ async function main(): Promise<void> {
     }
   };
 
-  // Initial scan
-  await doScan();
+  const stop = new AbortController();
+  const onStop = () => stop.abort();
+  process.once("SIGINT", onStop);
+  process.once("SIGTERM", onStop);
+  try {
+    while (!stop.signal.aborted) {
+      await doScan();
+      if (stop.signal.aborted) break;
+      await new Promise<void>(resolve => {
+        const done = () => { clearTimeout(timer); stop.signal.removeEventListener("abort", done); resolve(); };
+        const timer = setTimeout(done, INTERVAL_MS);
+        stop.signal.addEventListener("abort", done, { once: true });
+      });
+    }
+  } finally {
+    process.removeListener("SIGINT", onStop);
+    process.removeListener("SIGTERM", onStop);
+    console.log(`Stopped after ${scanId} scans. Data saved to ${OUT_DIR}/`);
+  }
 
-  // Recurring scans
-  const interval = setInterval(doScan, INTERVAL_MS);
-
-  process.on("SIGINT", () => {
-    console.log(`\n\nStopped after ${scanId} scans. Data saved to ${OUT_DIR}/`);
-    clearInterval(interval);
-    process.exit(0);
-  });
-
-  await new Promise(() => {});
 }
 
 if (import.meta.main) {
