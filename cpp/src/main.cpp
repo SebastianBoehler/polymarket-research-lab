@@ -1,8 +1,8 @@
-#include <types.hpp>
-#include <http_client.hpp>
-#include <market_fetcher.hpp>
-#include <orderbook.hpp>
-#include <order_signer.hpp>
+#include <polymarket/types.hpp>
+#include <polymarket/http_client.hpp>
+#include <polymarket/market_fetcher.hpp>
+#include <polymarket/orderbook.hpp>
+#include <polymarket/order_signer.hpp>
 #include <iostream>
 #include <csignal>
 #include <thread>

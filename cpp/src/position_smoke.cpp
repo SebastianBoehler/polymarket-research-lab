@@ -11,9 +11,9 @@
  * Run: PRIVATE_KEY=0x... FUNDER_ADDRESS=0x... ./build/position_smoke
  */
 
-#include <clob_client.hpp>
-#include <order_signer.hpp>
-#include <http_client.hpp>
+#include <polymarket/clob_client.hpp>
+#include <polymarket/order_signer.hpp>
+#include <polymarket/http_client.hpp>
 #include <iostream>
 #include <cstdlib>
 #include <iomanip>

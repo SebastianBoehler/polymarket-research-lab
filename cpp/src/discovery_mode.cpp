@@ -1,8 +1,8 @@
 #include <discovery_options.hpp>
 #include <example_strategies.hpp>
-#include <market_fetcher.hpp>
+#include <polymarket/market_fetcher.hpp>
 #include <slippage.hpp>
-#include <types.hpp>
+#include <polymarket/types.hpp>
 
 #include <nlohmann/json.hpp>
 
