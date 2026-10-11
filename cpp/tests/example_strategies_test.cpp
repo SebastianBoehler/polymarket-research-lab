@@ -49,7 +49,12 @@ int main()
     require(arb != nullptr, "expected binary arbitrage signal");
     require(std::abs(arb->edge_cents - 5.0) < 0.0001, "expected 5 cent edge");
     require(arb->paper_trade.has_value(), "expected paper-trade projection");
-    require(std::abs(arb->paper_trade->expected_edge_usdc - 0.5) < 0.0001, "expected paper edge on $10 stake");
+    require(std::abs(arb->paper_trade->expected_edge_usdc - 0.5263157895) < 0.0001,
+            "expected gross profit from equal YES/NO shares on $10 stake");
+    require(std::abs(arb->paper_trade->expected_payout_usdc - 10.5263157895) < 0.0001,
+            "expected one dollar gross payout per complementary bundle");
+    require(std::abs(arb->paper_trade->yes_shares - arb->paper_trade->no_shares) < 0.0001,
+            "expected equal complementary share quantities");
 
     auto shallow = make_snapshot();
     shallow.no_ask_size = 1.0;

@@ -41,8 +41,8 @@ PaperTrade project_binary_arb(const MarketSnapshot &snapshot, double stake_usdc)
     trade.stake_usdc = stake_usdc;
     trade.yes_shares = bundles;
     trade.no_shares = bundles;
-    trade.expected_edge_usdc = stake_usdc * (1.0 - combined);
-    trade.expected_payout_usdc = stake_usdc + trade.expected_edge_usdc;
+    trade.expected_payout_usdc = bundles;
+    trade.expected_edge_usdc = trade.expected_payout_usdc - stake_usdc;
     return trade;
 }
 } // namespace
