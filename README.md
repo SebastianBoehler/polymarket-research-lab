@@ -141,6 +141,8 @@ Cross-platform title similarity also does not establish matching resolution rule
 - [Dead-outcome strategy](docs/dead-outcome-strategy.md)
 - [Weather strategy discovery](docs/weather-strategy-discovery.md)
 - [Maintenance and compatibility](docs/maintenance.md)
+- [Research roadmap](docs/research-roadmap.md)
+- [Research data and verification](docs/research-data.md)
 
 These notes preserve earlier investigations. Their dates and assumptions matter;
 they are not evidence that a strategy currently works.
