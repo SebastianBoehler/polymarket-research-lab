@@ -1,334 +1,160 @@
 # polymarket-research-lab
 
 [![Build](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/build.yml/badge.svg)](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/build.yml)
-[![C++ Build](https://github.com/SebastianBoehler/polymarket-cpp-client/actions/workflows/build.yml/badge.svg)](https://github.com/SebastianBoehler/polymarket-cpp-client/actions/workflows/build.yml)
+[![C++ Build](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/cpp-build.yml/badge.svg)](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/cpp-build.yml)
+[![License](https://img.shields.io/github/license/SebastianBoehler/polymarket-research-lab)](LICENSE)
 
-Polymarket market analysis + execution toolkit written in **C++** + **TypeScript**.
+A C++20 and TypeScript workspace for prediction-market research: collect market
+snapshots, investigate pricing signals, and test strategy hypotheses.
 
-It combines:
+## Related projects
 
-- Low-latency C++ execution engine for live trading.
-- TypeScript research tooling for market discovery and strategy verification.
-- Snapshot collection and post-trade diagnostics.
+| Project | Role |
+| --- | --- |
+| **[polymarket-research-lab](https://github.com/SebastianBoehler/polymarket-research-lab)** | Research scripts, datasets, paper projections, and experimental strategies |
+| **[polymarket-cpp-client](https://github.com/SebastianBoehler/polymarket-cpp-client)** | Reusable C++ SDK for REST, WebSockets, signing, and positions; used by this lab |
+| [limitless-cpp-client](https://github.com/SebastianBoehler/limitless-cpp-client) | C++ client for Limitless Exchange |
+| [opinion-cpp-client](https://github.com/SebastianBoehler/opinion-cpp-client) | C++ client for Opinion.trade |
 
-## Overview
+Use the SDK for application integration. Use this lab to investigate a research
+question and preserve the assumptions behind a result.
 
-This bot monitors binary markets on Polymarket and executes arbitrage opportunities when the combined YES+NO ask price falls below $1.00. The core trading logic is implemented in **C++** for maximum performance, using the [polymarket-cpp-client](https://github.com/SebastianBoehler/polymarket-cpp-client) library for API interactions.
+## Status and scope
 
-### Architecture
+- TypeScript tools cover market discovery, CSV collection, outcome analysis,
+  and experimental strategies.
+- C++ `discovery_mode` emits JSONL signals and paper projections without placing orders.
+- Other C++ executables and TypeScript strategies contain execution paths.
+  Their live trading compatibility is **not validated** by the offline tests.
+  Several manually construct order payloads and retain older contract addresses.
+  Upgrading the SDK alone does not migrate those execution paths.
+- Paper results do not include a complete execution, fee, settlement, or inventory model.
+  Historical CSVs and plots are research artifacts, not current performance claims.
 
-- **C++ (core)**: Order signing, WebSocket streaming, batch order placement, arbitrage detection
-- **C++ discovery**: Live market scans, paper-trade projections, strategy signal JSONL
-- **TypeScript (auxiliary)**: Position redemption/merging, stats collection, wallet/copy-trade research
+## Quick start: TypeScript
 
-## Discovery Focus
-
-This repo is intentionally broader than arb-only:
-
-- Market and signal discovery: `src/scripts/collect-market-data.ts`
-- Strategy sanity checks against historical outcomes: `bun run strategy:nothing-ever-happens -- --csv <path>`
-
-### Verify "nothing ever happens" hypothesis
-
-To test the idea of always taking one side (historically `NO`):
-
-```bash
-bun run strategy:nothing-ever-happens -- \
-  --csv data/all-polymarket-20260514T194748Z/market-snapshots.csv \
-  --side no
-```
-
-Output: markdown summary (`data/nothing-ever-happens-report.md` by default), plus a local
-`data/market-outcome-cache.json` to avoid repeated resolution API fetches.
-
-Per-category breakdown is included automatically (`Category` section). To run only one category:
-
-```bash
-bun run strategy:nothing-ever-happens -- \
-  --csv data/all-polymarket-20260514T194748Z/market-snapshots.csv \
-  --side no \
-  --category Sports
-```
-
-For resolved-market history without a local snapshot CSV, use the Gamma closed-market feed:
-
-```bash
-bun run strategy:nothing-ever-happens:resolved -- \
-  --lookback-hours 336 \
-  --limit 2000
-```
-
-This reports how often resolved binary Yes/No markets ended as `NO`, including category buckets such as sports, crypto, weather, esports, politics, and culture.
-
-## Strategy
-
-### The Core Arbitrage Opportunity
-
-In binary prediction markets, a YES token and a NO token always resolve to a combined payout of exactly **$1.00** (one of them pays $1, the other pays $0). This creates a risk-free arbitrage opportunity whenever:
-
-```
-Best Ask (YES) + Best Ask (NO) < 1.00
-```
-
-**Example:** If you can buy YES at $0.48 and NO at $0.50, you pay $0.98 total and are guaranteed to receive $1.00 when the market resolves. That's a **2% risk-free profit** (minus fees).
-
-### Why This Works
-
-1. **Guaranteed Payout**: One outcome MUST happen - either YES wins or NO wins
-2. **Fixed Return**: The winning token always pays exactly $1.00
-3. **No Directional Risk**: You don't need to predict the outcome - you profit regardless of which side wins
-
-### Two Approaches
-
-#### 1. Instant Arbitrage (Combined < 1.0)
-
-When `bestAskYes + bestAskNo < 1.0`, you can immediately fill both sides and lock in profit:
-
-```
-Buy 100 YES @ $0.48 = $48.00
-Buy 100 NO  @ $0.50 = $50.00
-Total Cost:          $98.00
-Guaranteed Payout:  $100.00
-Profit:               $2.00 (2.04% ROI)
-```
-
-This is the **ideal scenario** - pure arbitrage with no execution risk if both orders fill.
-
-#### 2. Ladder DCA Strategy (Combined ≈ 1.0)
-
-When combined prices hover around 1.0, the bot uses dollar-cost averaging:
-
-- **Initial entry** when combined < threshold (e.g., 1.005)
-- **Add to position** on price drops (ladder levels)
-- **Exponential sizing** to lower average cost faster
-- **Target**: Get average combined cost below fee-adjusted payout
-
-### Math
-
-- **Fee-adjusted payout**: `1 - 0.02 * (1 - max_leg_price)`
-- **Edge**: `payout - combined_cost`
-- **Profitable** when edge > 0
-
-### Real-World Considerations
-
-- **Fees**: Polymarket charges ~2% on profits, reducing effective edge
-- **Execution Risk**: Both sides must fill; partial fills create directional exposure
-- **Liquidity**: Large orders may not fill at quoted prices
-- **Speed**: These opportunities are fleeting - milliseconds matter
-
-## Performance
-
-The C++ implementation provides significant performance advantages for latency-critical arbitrage:
-
-| Metric         | C++     | TypeScript | Speedup   |
-| -------------- | ------- | ---------- | --------- |
-| **Sign time**  | 0.06 ms | 96.8 ms    | **1613x** |
-| **Total time** | 50.7 ms | 147.2 ms   | **2.9x**  |
-
-The C++ client uses native secp256k1 cryptography and caches `neg_risk` per market to minimize API calls.
-
-## Client Freshness
-
-The C++ build consumes `polymarket-cpp-client` through CMake `FetchContent` with `POLYMARKET_CLIENT_GIT_TAG=main` by default. Reconfigure before latency-sensitive runs so the generated `_deps` checkout is refreshed:
-
-```bash
-bun run cpp:update-client
-```
-
-For reproducible testing, pin a ref:
-
-```bash
-POLYMARKET_CLIENT_GIT_TAG=<commit-or-tag> bun run cpp:update-client
-```
-
-## Project Structure
-
-```
-polymarket-research-lab/
-├── cpp/                         # C++ trading core (main)
-│   ├── src/
-│   │   ├── arb_test.cpp         # Arbitrage detector with WebSocket
-│   │   ├── batch_order_smoke.cpp # Batch order placement test
-│   │   ├── ladder_accumulation.cpp # Ladder DCA strategy
-│   │   ├── order_benchmark.cpp  # Order latency benchmarking
-│   │   └── main.cpp             # Main arbitrage bot
-│   └── CMakeLists.txt           # Uses polymarket-cpp-client via FetchContent
-├── src/                         # TypeScript auxiliary tools
-│   ├── core/                    # Shared types and utilities
-│   ├── services/
-│   │   └── redemption-service.ts # Position redemption/merging
-│   ├── stats/
-│   │   └── stats.ts             # Market stats collection
-│   └── scripts/                 # Various smoke tests
-├── scripts/
-│   ├── entrypoint.sh
-│   ├── nothing-ever-happens/    # TypeScript strategy verifier
-│   └── update-cpp-client.sh     # C++ dependency sync helper
-├── tests/                       # Bun test suite
-└── plots/                       # Generated analysis plots
-```
-
-## Requirements
-
-### C++ (trading core)
-
-- CMake 3.16+
-- C++20 compiler (clang/gcc)
-- OpenSSL, curl
-
-### TypeScript (auxiliary tools)
-
-- [Bun](https://bun.sh/) runtime
-
-## Installation
+Requires [Bun](https://bun.sh/) 1.3.3 (the CI version).
 
 ```bash
 git clone https://github.com/SebastianBoehler/polymarket-research-lab.git
 cd polymarket-research-lab
+bun install --frozen-lockfile
+bun run typecheck
+bun test
+bun run build
 
-# Build C++ executables
-cd cpp
-mkdir build && cd build
-cmake ..
-make -j8
+# Public market analysis; requests live APIs, but does not place orders
+bun run analyze
 
-# Install TypeScript dependencies
-cd ../..
-bun install
+# Collect market snapshots into ./data until Ctrl+C
+bun run collect
 ```
 
-## Usage
+`bun run plots` currently runs the same summary script as `bun run analyze`;
+it does not regenerate the historical PNG plots.
 
-### C++ Arbitrage Bot (recommended)
+## Quick start: C++ research
+
+Requires CMake 3.22+, a C++20 compiler, Git, libcurl, OpenSSL, and zlib.
+Linux and macOS are checked in CI. On Ubuntu:
 
 ```bash
-# Set environment variables
-export PRIVATE_KEY=0x...
-export FUNDER_ADDRESS=0x...
+sudo apt-get install cmake build-essential git libcurl4-openssl-dev libssl-dev zlib1g-dev
+```
 
-# Run arbitrage detector (monitors and places batch orders)
-./cpp/build/arb_test
+From the repository root:
 
-# Run with custom parameters
-TRIGGER_COMBINED=0.995 SIZE_USDC=5 DRY_RUN=true ./cpp/build/arb_test
+```bash
+bun run cpp:configure
+bun run cpp:build
+bun run cpp:test
 
-# Run batch order smoke test
-./cpp/build/batch_order_smoke
-
-# Run order benchmark
-./cpp/build/order_benchmark
-
-# Scan markets and emit strategy/paper-trade signals as JSONL
+# One public market scan; writes JSONL to stdout
 bun run discovery:cpp
 
-# Crypto 15m discovery, runs until Ctrl+C/SIGTERM
-./cpp/build/discovery_mode --15m --max 25 --interval-ms 1000 --out data/discovery.jsonl
-
-# Bounded collection by wall-clock duration
-./cpp/build/discovery_mode --15m --duration-hours 8 --interval-ms 30000 --out data/discovery-overnight.jsonl
+# Crypto 15-minute markets, with a bounded collection period
+./cpp/build/discovery_mode --15m --duration-min 30 \
+  --interval-ms 30000 --out data/discovery.jsonl
 ```
 
-### TypeScript Tools
+CMake pins `polymarket-cpp-client` to **v3.0.0**. The lab uses the SDK's public
+`<polymarket/...>` headers and `polymarket::client` target.
+To rebuild the dependency, or explicitly test another ref:
 
 ```bash
-# Run stats collection (market analysis)
-bun run src/stats/stats.ts
-
-# Run position redemption service
-bun run src/services/redemption-service.ts
-
-# Run tests
-bun test
+bun run cpp:update-client
+POLYMARKET_CLIENT_GIT_TAG=<tag-or-commit> bun run cpp:update-client
 ```
 
-## Configuration
+See [cpp/README.md](cpp/README.md) for executable scope and build details.
 
-### C++ Environment Variables
+## Test a hypothesis
 
-| Variable           | Default | Description                             |
-| ------------------ | ------- | --------------------------------------- |
-| `PRIVATE_KEY`      | -       | Wallet private key (required)           |
-| `FUNDER_ADDRESS`   | -       | Gnosis Safe address holding funds       |
-| `TRIGGER_COMBINED` | 0.98    | Place orders when combined < this       |
-| `MAX_COMBINED`     | 0.99    | Max combined price with slippage buffer |
-| `SIZE_USDC`        | 1       | USD amount per leg                      |
-| `DRY_RUN`          | true    | Set to "false" for live trading         |
-
-## How It Works
-
-1. **Market Discovery**: Fetches active crypto 15m markets from Gamma API
-2. **WebSocket Streaming**: Subscribes to `agg_orderbook` for real-time depth
-3. **Opportunity Detection**: Monitors for `bestAskYes + bestAskNo < trigger`
-4. **Batch Execution**: Places YES and NO orders simultaneously via batch API
-5. **FOK Orders**: Uses Fill-Or-Kill to ensure complete fills or cancellation
-
-## Example Output
-
-```
-=== C++ Arbitrage Test ===
-Size per leg: $1
-Trigger combined: 0.98
-
-[2] Finding BTC 15m market with liquidity...
-    Found: btc-updown-15m-1767472200 (expires in 15min)
-    Best ask YES: 0.51
-    Best ask NO:  0.50
-    Combined:     1.01
-
-[3] Connecting to WebSocket for real-time orderbook...
-    WebSocket connected!
-    Subscribed to agg_orderbook
-
-[4] Monitoring for arbitrage opportunity (combined < 0.98)...
-    [15:46] UP: 0.51 + DOWN: 0.50 = 1.0100 (trigger: 0.9800)
-    [15:41] UP: 0.48 + DOWN: 0.49 = 0.9700 (trigger: 0.9800)
-
-    ✅ OPPORTUNITY FOUND!
-    Combined: 0.97 < 0.98
-    Potential profit: 3.00%
-
-[5] Posting batch order (FOK)...
-    YES order: ✓ matched (100 shares @ $0.48)
-    NO order:  ✓ matched (100 shares @ $0.49)
-    BOTH ORDERS FILLED!
-```
-
-## Analysis & Insights
-
-The bot tracks market inefficiencies across crypto 15-minute prediction markets. Run:
+The “nothing ever happens” scripts measure historical binary Yes/No outcomes.
+Choose your own snapshot CSV; raw datasets are not bundled with the repository.
 
 ```bash
-bun run src/scripts/analyze-markets.ts
+bun run strategy:nothing-ever-happens -- \
+  --csv data/market-snapshots.csv --side no --category Sports
+
+# Alternatively, query the Gamma closed-market feed
+bun run strategy:nothing-ever-happens:resolved -- \
+  --lookback-hours 336 --limit 2000
 ```
 
-### Market Inefficiency
+The CSV verifier writes `data/nothing-ever-happens-report.md` and caches outcomes
+in `data/market-outcome-cache.json`. A high NO win rate alone does not demonstrate
+profitability: entry prices, sampling, unresolved outcomes, fees, and liquidity matter.
 
-Shows the percentage of price updates where combined YES+NO ask prices fall below various thresholds. Combined < 1.0 represents an arbitrage opportunity (before fees).
+## Interpreting pricing signals
 
-![Market Inefficiency](plots/market_inefficiency.png)
+For equal shares of complementary YES and NO tokens in the same binary condition,
+combined purchase cost below $1 is a **gross pricing signal**. Realized profit
+also depends on both legs filling, fees, slippage, and settlement.
 
-### Inefficiency by Symbol
+For example, 100 YES at $0.48 and 100 NO at $0.50 cost $98 before fees.
+A $100 combined payout would leave $2 gross. A quoted book does not guarantee
+those fills. Batch FOK orders apply all-or-nothing to each order individually;
+the pair is not atomic, and one leg can fill while the other fails.
 
-Compares arbitrage opportunity frequency across different crypto assets.
+Fees vary by market. Check the market's current parameters and
+[Polymarket's fee documentation](https://docs.polymarket.com/trading/fees).
+Do not use a universal “0% fees” or “2% of profits” assumption.
+Cross-platform title similarity also does not establish matching resolution rules.
 
-![Inefficiency by Symbol](plots/inefficiency_by_symbol.png)
+## Project layout
 
-### Hit Rates by Threshold
+| Path | Contents |
+| --- | --- |
+| `cpp/` | Research scanner, strategy calculations, execution experiments, CTest suite |
+| `src/core/`, `src/services/` | Shared types, market data, wallet monitoring, positions |
+| `src/scripts/`, `src/stats/` | Collection and analysis entry points |
+| `src/strategies/` | Experimental execution strategies |
+| `scripts/nothing-ever-happens/` | Historical outcome verification |
+| `tests/` | Offline Bun tests |
+| `data/` | Local data and reports, ignored by Git |
+| `plots/`, `stats-summary*.csv` | Historical tracked research artifacts |
 
-Detailed breakdown of hit rates per symbol across all tracked thresholds.
+## Research notes
 
-![Hit Rates](plots/hit_rates_per_symbol.png)
+- [Market discovery findings](docs/market-discovery-findings.md)
+- [Dead-outcome strategy](docs/dead-outcome-strategy.md)
+- [Weather strategy discovery](docs/weather-strategy-discovery.md)
+- [Maintenance and compatibility](docs/maintenance.md)
 
-### Opportunity Timeline
+These notes preserve earlier investigations. Their dates and assumptions matter;
+they are not evidence that a strategy currently works.
 
-Shows when arbitrage hits occur over time to highlight session-dependent opportunity bursts.
+## Contributing
 
-![Opportunity Timeline](plots/opportunity_timeline.png)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and research expectations.
+Report reproducible bugs or propose a focused investigation through
+[Issues](https://github.com/SebastianBoehler/polymarket-research-lab/issues).
+Coding agents should start with [AGENTS.md](AGENTS.md).
+For sensitive reports, follow [SECURITY.md](SECURITY.md).
 
-## Disclaimer
+## License and disclaimer
 
-This is for educational purposes only. Trading on prediction markets involves risk. Do your own research before trading.
-
-## License
-
-[MIT](LICENSE)
+[MIT](LICENSE). This independent project is not affiliated with Polymarket.
+Experimental execution can lose funds. Respect platform terms and geographic
+restrictions; a proxy or VPN does not establish trading eligibility.
