@@ -1,17 +1,18 @@
-# polymarket-research-lab
+# prediction-market-research-lab
 
-[![Build](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/build.yml/badge.svg)](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/build.yml)
-[![C++ Build](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/cpp-build.yml/badge.svg)](https://github.com/SebastianBoehler/polymarket-research-lab/actions/workflows/cpp-build.yml)
-[![License](https://img.shields.io/github/license/SebastianBoehler/polymarket-research-lab)](LICENSE)
+[![Build](https://github.com/SebastianBoehler/prediction-market-research-lab/actions/workflows/build.yml/badge.svg)](https://github.com/SebastianBoehler/prediction-market-research-lab/actions/workflows/build.yml)
+[![C++ Build](https://github.com/SebastianBoehler/prediction-market-research-lab/actions/workflows/cpp-build.yml/badge.svg)](https://github.com/SebastianBoehler/prediction-market-research-lab/actions/workflows/cpp-build.yml)
+[![License](https://img.shields.io/github/license/SebastianBoehler/prediction-market-research-lab)](LICENSE)
 
 A C++20 and TypeScript workspace for prediction-market research: collect market
-snapshots, investigate pricing signals, and test strategy hypotheses.
+snapshots across Polymarket and Kalshi, investigate pricing signals, and test
+strategy hypotheses.
 
 ## Related projects
 
 | Project | Role |
 | --- | --- |
-| **[polymarket-research-lab](https://github.com/SebastianBoehler/polymarket-research-lab)** | Research scripts, datasets, paper projections, and experimental strategies |
+| **[prediction-market-research-lab](https://github.com/SebastianBoehler/prediction-market-research-lab)** | Research scripts, datasets, paper projections, and experimental strategies |
 | **[polymarket-cpp-client](https://github.com/SebastianBoehler/polymarket-cpp-client)** | Reusable C++ SDK for REST, WebSockets, signing, and positions; used by this lab |
 | [limitless-cpp-client](https://github.com/SebastianBoehler/limitless-cpp-client) | C++ client for Limitless Exchange |
 | [opinion-cpp-client](https://github.com/SebastianBoehler/opinion-cpp-client) | C++ client for Opinion.trade |
@@ -36,8 +37,8 @@ question and preserve the assumptions behind a result.
 Requires [Bun](https://bun.sh/) 1.3.3 (the CI version).
 
 ```bash
-git clone https://github.com/SebastianBoehler/polymarket-research-lab.git
-cd polymarket-research-lab
+git clone https://github.com/SebastianBoehler/prediction-market-research-lab.git
+cd prediction-market-research-lab
 bun install --frozen-lockfile
 bun run typecheck
 bun test
@@ -151,7 +152,7 @@ they are not evidence that a strategy currently works.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and research expectations.
 Report reproducible bugs or propose a focused investigation through
-[Issues](https://github.com/SebastianBoehler/polymarket-research-lab/issues).
+[Issues](https://github.com/SebastianBoehler/prediction-market-research-lab/issues).
 Coding agents should start with [AGENTS.md](AGENTS.md).
 For sensitive reports, follow [SECURITY.md](SECURITY.md).
 

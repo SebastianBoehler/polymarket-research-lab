@@ -1,7 +1,7 @@
 {
-  "name": "polymarket-research-lab",
+  "name": "prediction-market-research-lab",
   "version": "1.0.0",
-  "description": "Polymarket market research and trading toolkit (C++ core + TypeScript analysis + strategy backtests)",
+  "description": "Prediction-market research across Polymarket and Kalshi (C++ core + TypeScript analysis + experimental strategies)",
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
@@ -45,6 +45,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SebastianBoehler/polymarket-research-lab"
+    "url": "https://github.com/SebastianBoehler/prediction-market-research-lab"
   }
 }

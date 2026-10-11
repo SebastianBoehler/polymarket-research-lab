@@ -147,7 +147,7 @@ function match(text: string, needles: string[]): boolean {
 
 async function fetchJson<T>(url: string): Promise<T> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await fetch(url, { headers: { "User-Agent": "polymarket-research-lab/1.0" }, signal: AbortSignal.timeout(15000) });
+    const response = await fetch(url, { headers: { "User-Agent": "prediction-market-research-lab/1.0" }, signal: AbortSignal.timeout(15000) });
     if (response.status === 429) {
       await sleep(500 * (attempt + 1));
       continue;
