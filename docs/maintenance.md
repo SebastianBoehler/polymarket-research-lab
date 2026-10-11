@@ -7,7 +7,10 @@ to its public polymarket/ namespace, and makes CI run the offline C++ suite.
 TypeScript dependencies and transitives are refreshed within compatible ranges.
 Bun types stay pinned to 1.3.5: the newer 1.4.x declarations reject existing
 process signal handlers with the resolved Node types. The redundant @types/bun
-package is removed. A wholesale SDK migration remains separate work.
+package is removed. Direct imports of order-utils, ethers, and ws are declared
+explicitly rather than relying on the client's transitive dependencies. The
+order-utils package preserves legacy signing experiments; it is not evidence of
+current V2 compatibility. A wholesale SDK migration remains separate work.
 
 The refreshed lockfile reduces bun audit findings from 67 to 27 (11 high,
 14 moderate, 2 low). Remaining reports involve axios 0.x, ws, and elliptic

@@ -29,9 +29,12 @@
     "@ethersproject/wallet": "^5.8.0",
     "@polymarket/builder-relayer-client": "^0.0.8",
     "@polymarket/clob-client": "^5.8.1",
+    "@polymarket/order-utils": "3.0.1",
     "@polymarket/real-time-data-client": "^1.4.0",
     "dotenv": "^17.4.2",
-    "viem": "^2.57.4"
+    "ethers": "5.8.0",
+    "viem": "^2.57.4",
+    "ws": "8.21.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",
