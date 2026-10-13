@@ -13,18 +13,11 @@
  *   REFRESH_MS=1000        // how often to log latest book snapshot
  *   RECHECK_MS=10000       // how often to check for a new market/expiry
  */
+import { storeMarketBook, type MarketBook as AggOrderBook } from "../core/market-book";
 import { ConnectionStatus, RealTimeDataClient } from "@polymarket/real-time-data-client";
 import { fetchCrypto15mMarkets } from "../core/gamma";
 import { formatExpiry, getMarketExpiry } from "../core/utils";
 import type { MarketState } from "../core/types";
-
-type AggOrderBook = {
-  asset_id: string;
-  bids?: { price: string; size: string }[];
-  asks?: { price: string; size: string }[];
-  tick_size?: string;
-  neg_risk?: boolean;
-};
 
 const SYMBOL = (process.env.SYMBOL ?? "btc").toLowerCase();
 const REFRESH_MS = Number(process.env.REFRESH_MS ?? "1000");
@@ -111,10 +104,7 @@ async function restartClient(): Promise<void> {
     autoReconnect: true,
     onMessage: (_client, message) => {
       if (!connected) return;
-      const { topic, type, payload } = message as { topic: string; type: string; payload: AggOrderBook };
-      if (topic === "clob_market" && type === "agg_orderbook") {
-        latestBook.set(payload.asset_id, payload);
-      }
+      storeMarketBook(message, latestBook);
     },
     onConnect: (connectedClient) => {
       connected = true;

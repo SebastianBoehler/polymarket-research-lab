@@ -9,14 +9,16 @@
  */
 
 import WebSocket from "ws";
+import { parseBybitTicker } from "./bybit-payload";
+import { MarketStreamValidationError, record } from "../core/stream-validation";
 
 export interface SpotPriceUpdate {
   symbol: string; // e.g., "BTCUSDT"
   lastPrice: number;
   timestamp: number;
-  bid1Price: number;
-  ask1Price: number;
-  price24hPcnt: number; // 24h price change percentage
+  bid1Price?: number;
+  ask1Price?: number;
+  price24hPcnt?: number; // 24h price change percentage
 }
 
 export interface SpotPriceHistory {
@@ -130,28 +132,7 @@ export class BybitSpotClient {
       this.onConnect?.();
     });
 
-    this.ws.on("message", (data: Buffer) => {
-      try {
-        const msg = JSON.parse(data.toString());
-
-        // Handle pong
-        if (msg.op === "pong" || msg.ret_msg === "pong") {
-          return;
-        }
-
-        // Handle subscription confirmation
-        if (msg.op === "subscribe" && msg.success) {
-          return;
-        }
-
-        // Handle ticker data
-        if (msg.topic?.startsWith("tickers.") && msg.data) {
-          this.handleTickerUpdate(msg);
-        }
-      } catch (err) {
-        // Ignore parse errors
-      }
-    });
+    this.ws.on("message", (data: Buffer) => this.handleMessage(data.toString()));
 
     this.ws.on("close", () => {
       console.log(`[Bybit] WebSocket disconnected`);
@@ -166,21 +147,36 @@ export class BybitSpotClient {
     });
   }
 
-  private handleTickerUpdate(msg: any) {
-    const data = msg.data;
-    const symbol = data.symbol as string;
+  private handleMessage(raw: string) {
+    let msg: Record<string, unknown>;
+    try {
+      msg = record(JSON.parse(raw), "Bybit message");
+    } catch (error) {
+      if (!(error instanceof SyntaxError) && !(error instanceof MarketStreamValidationError)) throw error;
+      console.warn("[Bybit] Rejected malformed WebSocket message");
+      return;
+    }
+    if (msg.op === "pong" || msg.ret_msg === "pong") return;
+    if (msg.op === "subscribe" && msg.success === true) return;
+    if (typeof msg.topic === "string" && msg.topic.startsWith("tickers.")) {
+      this.handleTickerUpdate(msg);
+    }
+  }
+
+  private handleTickerUpdate(msg: unknown) {
+    let update: SpotPriceUpdate;
+    try {
+      update = parseBybitTicker(msg);
+      if (!this.symbols.includes(update.symbol)) {
+        throw new MarketStreamValidationError("ticker symbol is not subscribed");
+      }
+    } catch (error) {
+      if (!(error instanceof MarketStreamValidationError)) throw error;
+      console.warn(`[Bybit] Rejected ticker: ${error.message}`);
+      return;
+    }
+    const symbol = update.symbol;
     const now = Date.now();
-
-    const update: SpotPriceUpdate = {
-      symbol,
-      lastPrice: parseFloat(data.lastPrice),
-      timestamp: msg.ts || now,
-      bid1Price: parseFloat(data.bid1Price || "0"),
-      ask1Price: parseFloat(data.ask1Price || "0"),
-      price24hPcnt: parseFloat(data.price24hPcnt || "0"),
-    };
-
-    if (!Number.isFinite(update.lastPrice) || update.lastPrice <= 0) return;
 
     // Log periodic status (every 60s)
     if (now - this.lastLogTs > 60_000) {

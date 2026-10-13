@@ -17,6 +17,7 @@
  *   MAX_COMBINED - Max combined price with slippage for orders (default 0.99)
  *   DRY_RUN - "true" to skip actual orders (default "true")
  */
+import { readMarketBook } from "../core/market-book";
 import { ConnectionStatus, RealTimeDataClient } from "@polymarket/real-time-data-client";
 import { ClobClient, OrderType, Side } from "@polymarket/clob-client";
 import { Wallet } from "@ethersproject/wallet";
@@ -404,31 +405,20 @@ function startMonitoring() {
     onMessage: async (_c, message) => {
       if (executed) return;
 
-      const { topic, type, payload } = message as { topic: string; type: string; payload: any };
-      if (topic !== "clob_market" || type !== "agg_orderbook") return;
+      const payload = readMarketBook(message);
+      if (!payload) return;
+      const { asset_id: assetId, asks, bids } = payload;
 
-      const assetId = payload?.asset_id as string;
-      const asks = payload?.asks as { price: string; size: string }[] | undefined;
-      const bids = payload?.bids as { price: string; size: string }[] | undefined;
-
-      // Store full orderbook for liquidity checks
+      // Replace both sides of the snapshot, including empty books.
       if (assetId === m.tokenYes) {
-        if (asks?.length) {
-          yesAsks = asks.map((a) => ({ price: Number(a.price), size: Number(a.size) }));
-          m.bestAskYes = Math.min(...yesAsks.map((a) => a.price));
-        }
-        if (bids?.length) {
-          yesBids = bids.map((b) => ({ price: Number(b.price), size: Number(b.size) }));
-        }
+        yesAsks = asks.map((a) => ({ price: Number(a.price), size: Number(a.size) }));
+        yesBids = bids.map((b) => ({ price: Number(b.price), size: Number(b.size) }));
+        m.bestAskYes = yesAsks.length ? Math.min(...yesAsks.map((a) => a.price)) : 0;
       } else if (assetId === m.tokenNo) {
-        if (asks?.length) {
-          noAsks = asks.map((a) => ({ price: Number(a.price), size: Number(a.size) }));
-          m.bestAskNo = Math.min(...noAsks.map((a) => a.price));
-        }
-        if (bids?.length) {
-          noBids = bids.map((b) => ({ price: Number(b.price), size: Number(b.size) }));
-        }
-      }
+        noAsks = asks.map((a) => ({ price: Number(a.price), size: Number(a.size) }));
+        noBids = bids.map((b) => ({ price: Number(b.price), size: Number(b.size) }));
+        m.bestAskNo = noAsks.length ? Math.min(...noAsks.map((a) => a.price)) : 0;
+      } else return;
 
       // Check if we have both prices
       if (m.bestAskYes <= 0 || m.bestAskNo <= 0) return;

@@ -13,6 +13,7 @@
  *  - STATS_LOW_PRICE_THRESHOLDS: comma-separated low-price thresholds for dust (default: "0.01,0.02,0.03,0.05")
  *  - STATS_HIGH_PRICE_THRESHOLDS: comma-separated high-price thresholds (default: "0.95,0.97,0.99")
  */
+import { readMarketBook } from "../core/market-book";
 import { RealTimeDataClient, ConnectionStatus } from "@polymarket/real-time-data-client";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { fetchCrypto15mMarkets, fetchCrypto1hMarkets, fetchCrypto4hMarkets } from "../core/gamma";
@@ -428,25 +429,14 @@ async function main() {
     onMessage: (_client, message) => {
       totalMessages += 1;
       if (!connected) return;
-      const { topic, type, payload } = message as { topic: string; type: string; payload: any };
-
-      // Only use agg_orderbook - it provides full depth and best prices
-      if (topic === "clob_market" && type === "agg_orderbook") {
+      const payload = readMarketBook(message);
+      if (payload) {
         totalBookEvents += 1;
-        const assetId = (payload as any)?.asset_id as string;
-        const asks = (payload as any)?.asks as { price: string; size: string }[] | undefined;
-        if (!assetId || !asks || asks.length === 0) return;
-
-        const entry = tokenToMarket.get(assetId);
+        const entry = tokenToMarket.get(payload.asset_id);
         if (!entry) return;
-
-        // Parse and store full orderbook
-        const parsedAsks: OrderbookLevel[] = asks
-          .map((a) => ({
-            price: Number(a.price),
-            size: Number(a.size),
-          }))
-          .filter((a) => Number.isFinite(a.price) && Number.isFinite(a.size) && a.price > 0);
+        const parsedAsks: OrderbookLevel[] = payload.asks.map((a) => ({
+          price: Number(a.price), size: Number(a.size),
+        }));
 
         if (entry.side === "yes") {
           entry.market.asksYes = parsedAsks;
@@ -454,8 +444,11 @@ async function main() {
           entry.market.asksNo = parsedAsks;
         }
 
-        const bestAsk = Math.min(...parsedAsks.map((a) => a.price));
-        if (!Number.isFinite(bestAsk) || bestAsk <= 0) return;
+        const bestAsk = parsedAsks.length ? Math.min(...parsedAsks.map((a) => a.price)) : 0;
+        if (!parsedAsks.length) {
+          if (entry.side === "yes") entry.market.market.bestAskYes = 0;
+          else entry.market.market.bestAskNo = 0;
+        }
 
         // Update latest Polymarket prices for spot-lag correlation
         const symbol = extractSymbol(entry.market.market.slug);
@@ -468,6 +461,7 @@ async function main() {
         }
         existing.ts = now;
         latestPolyPrices.set(symbol, existing);
+        if (!parsedAsks.length) return;
 
         // Check for spot-lag correlation (did Polymarket catch up to a pending spot move?)
         if (entry.side === "yes") {
