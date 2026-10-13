@@ -102,6 +102,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(polymarket_client)
 
+add_library(polyarb_market_stream src/market_stream.cpp)
+target_include_directories(polyarb_market_stream PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(polyarb_market_stream PUBLIC polymarket::client)
+
 # Strategy executables - all link against polymarket::client
 
 add_library(polyarb_strategies
@@ -125,7 +129,7 @@ target_link_libraries(order_test PRIVATE polymarket::client)
 
 # Arbitrage test executable (batch orders with WebSocket)
 add_executable(arb_test src/arb_test.cpp)
-target_link_libraries(arb_test PRIVATE polymarket::client)
+target_link_libraries(arb_test PRIVATE polyarb_market_stream)
 
 # ClobClient test executable
 add_executable(clob_client_test src/clob_client_test.cpp)
@@ -137,7 +141,7 @@ target_link_libraries(batch_order_smoke PRIVATE polymarket::client)
 
 # Ladder accumulation strategy executable
 add_executable(ladder_accumulation src/ladder_accumulation.cpp)
-target_link_libraries(ladder_accumulation PRIVATE polymarket::client)
+target_link_libraries(ladder_accumulation PRIVATE polyarb_market_stream)
 
 # Position management smoke test executable
 add_executable(position_smoke src/position_smoke.cpp)
@@ -149,13 +153,17 @@ target_link_libraries(order_benchmark PRIVATE polymarket::client)
 
 # Average-in strategy test executable
 add_executable(avg_in_test src/avg_in_test.cpp)
-target_link_libraries(avg_in_test PRIVATE polymarket::client)
+target_link_libraries(avg_in_test PRIVATE polyarb_market_stream)
 
 # Install
 install(TARGETS polymarket_arb DESTINATION bin)
 
 if(POLY_ARB_BUILD_TESTS)
     enable_testing()
+
+    add_executable(market_stream_test tests/market_stream_test.cpp)
+    target_link_libraries(market_stream_test PRIVATE polyarb_market_stream)
+    add_test(NAME market_stream_test COMMAND market_stream_test)
 
     add_executable(example_strategies_test tests/example_strategies_test.cpp)
     target_link_libraries(example_strategies_test PRIVATE polyarb_strategies)

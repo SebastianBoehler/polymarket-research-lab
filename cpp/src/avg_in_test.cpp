@@ -17,6 +17,7 @@
 #include <polymarket/order_signer.hpp>
 #include <polymarket/http_client.hpp>
 #include <polymarket/websocket_client.hpp>
+#include <market_stream.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cstdlib>
@@ -584,44 +585,20 @@ int main(int argc, char *argv[])
             });
             ws.send(subscribe_msg.dump()); });
 
-        ws.on_message([&](const std::string &msg)
-                      {
-            try {
-                auto j = json::parse(msg);
-                if (!j.contains("payload")) return;
-                auto payload = j["payload"];
-                
-                // Handle array (initial snapshot)
-                if (payload.is_array()) {
-                    for (const auto& book : payload) {
-                        std::string asset_id = book.value("asset_id", "");
-                        if (book.contains("asks") && !book["asks"].empty()) {
-                            double best = 1.0;
-                            for (const auto& ask : book["asks"]) {
-                                double price = std::stod(ask["price"].get<std::string>());
-                                if (price < best) best = price;
-                            }
-                            std::lock_guard<std::mutex> lock(price_mutex);
-                            if (asset_id == market.token_yes) market.best_ask_yes = best;
-                            else if (asset_id == market.token_no) market.best_ask_no = best;
-                        }
-                    }
-                }
-                // Handle single update
-                else if (payload.is_object()) {
-                    std::string asset_id = payload.value("asset_id", "");
-                    if (payload.contains("asks") && !payload["asks"].empty()) {
-                        double best = 1.0;
-                        for (const auto& ask : payload["asks"]) {
-                            double price = std::stod(ask["price"].get<std::string>());
-                            if (price < best) best = price;
-                        }
-                        std::lock_guard<std::mutex> lock(price_mutex);
-                        if (asset_id == market.token_yes) market.best_ask_yes = best;
-                        else if (asset_id == market.token_no) market.best_ask_no = best;
-                    }
-                }
-            } catch (...) {} });
+        ws.on_message([&](const std::string &msg) {
+        try {
+            const auto updates = polyarb::parse_market_ask_updates(msg);
+            std::lock_guard<std::mutex> lock(price_mutex);
+            for (const auto &update : updates) {
+                if (update.asset_id == market.token_yes) market.best_ask_yes = update.best_ask;
+                else if (update.asset_id == market.token_no) market.best_ask_no = update.best_ask;
+            }
+        } catch (const polyarb::MarketStreamValidationError &error) {
+            std::cerr << "Rejected market WebSocket message: " << error.what() << '\n';
+        } catch (const std::exception &) {
+            std::cerr << "Market WebSocket processing failed\n";
+        }
+    });
 
         std::thread ws_thread([&]()
                               {
