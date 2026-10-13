@@ -14,6 +14,7 @@
 #include <polymarket/order_signer.hpp>
 #include <polymarket/http_client.hpp>
 #include <polymarket/websocket_client.hpp>
+#include <market_stream.hpp>
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <cstdlib>
@@ -753,46 +754,25 @@ int main(int argc, char *argv[])
     ws.set_url(WS_URL);
     ws.set_auto_reconnect(true);
 
-    ws.on_message([&](const std::string &msg)
-                  {
+    ws.on_message([&](const std::string &msg) {
         try {
-            auto j = json::parse(msg);
-            
-            // Polymarket WebSocket format: { topic, type, payload }
-            std::string topic = j.value("topic", "");
-            std::string type = j.value("type", "");
-            
-            // Handle agg_orderbook updates (full orderbook with asks/bids)
-            if (topic == "clob_market" && type == "agg_orderbook") {
-                if (!j.contains("payload")) return;
-                auto payload = j["payload"];
-                std::string asset_id = payload.value("asset_id", "");
-                if (asset_id.empty()) return;
-                
-                auto slug_it = g_token_to_slug.find(asset_id);
-                if (slug_it == g_token_to_slug.end()) return;
-                
-                if (payload.contains("asks") && !payload["asks"].empty()) {
-                    // Find best (lowest) ask
-                    double best_ask = 1.0;
-                    for (const auto& ask : payload["asks"]) {
-                        double price = std::stod(ask["price"].get<std::string>());
-                        if (price < best_ask) best_ask = price;
-                    }
-                    
-                    auto& market = g_markets[slug_it->second];
-                    if (g_token_to_side[asset_id] == "yes") {
-                        market.best_ask_yes = best_ask;
-                    } else {
-                        market.best_ask_no = best_ask;
-                    }
-                    
-                    // Try entry on price update
+            const auto updates = polyarb::parse_market_ask_updates(msg);
+            for (const auto &update : updates) {
+                auto slug_it = g_token_to_slug.find(update.asset_id);
+                if (slug_it == g_token_to_slug.end()) continue;
+                auto &market = g_markets[slug_it->second];
+                if (g_token_to_side[update.asset_id] == "yes") market.best_ask_yes = update.best_ask;
+                else market.best_ask_no = update.best_ask;
+                if (update.best_ask > 0) {
                     try_entry(market, cfg, signer, clob_http, creds, funder_address);
                 }
             }
-            
-        } catch (...) {} });
+        } catch (const polyarb::MarketStreamValidationError &error) {
+            std::cerr << "Rejected market WebSocket message: " << error.what() << '\n';
+        } catch (const std::exception &) {
+            std::cerr << "Market WebSocket processing failed\n";
+        }
+    });
 
     ws.on_connect([&]()
                   {
