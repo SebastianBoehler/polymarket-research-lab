@@ -16,6 +16,7 @@
  *   PER_SYMBOL_BUDGET_USDC=100
  *   MAX_MARKETS=100
  */
+import { readMarketBook } from "../core/market-book";
 import { ConnectionStatus, RealTimeDataClient } from "@polymarket/real-time-data-client";
 import { ClobClient, OrderType, Side } from "@polymarket/clob-client";
 import { Wallet } from "@ethersproject/wallet";
@@ -499,13 +500,11 @@ export async function main() {
     autoReconnect: true,
     onMessage: async (_c, message) => {
       if (!connected) return;
-      const { topic, type, payload } = message as { topic: string; type: string; payload: any };
-      if (topic === "clob_market" && type === "agg_orderbook") {
-        const assetId = payload?.asset_id as string;
-        const entry = tokenToMarket.get(assetId);
-        const asks = payload?.asks as { price: string }[] | undefined;
-        if (entry && asks?.length) {
-          const bestAsk = Math.min(...asks.map((a) => Number(a.price)));
+      const payload = readMarketBook(message);
+      if (payload) {
+        const entry = tokenToMarket.get(payload.asset_id);
+        if (entry) {
+          const bestAsk = payload.asks.length ? Math.min(...payload.asks.map((a) => Number(a.price))) : 0;
           if (entry.side === "yes") entry.market.market.bestAskYes = bestAsk;
           else entry.market.market.bestAskNo = bestAsk;
           // For smoke test: directly call balancePosition to place $1 orders

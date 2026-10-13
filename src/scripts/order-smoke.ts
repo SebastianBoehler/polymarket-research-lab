@@ -15,6 +15,7 @@
  *   SIDE             optional, "yes" | "no" (default "yes")
  *   DRY_RUN          optional, default "true" (set to "false" to place order)
  */
+import { storeMarketBook, type MarketBook as AggOrderBook } from "../core/market-book";
 import dns from "node:dns";
 import { Wallet } from "@ethersproject/wallet";
 import { ClobClient, OrderType, Side } from "@polymarket/clob-client";
@@ -38,11 +39,6 @@ const MIN_USD_PER_LEG = Number(process.env.MIN_USD_PER_LEG ?? "1");
 const MAX_USDC = Number(process.env.MAX_USDC ?? "5"); // overall cap if you want larger tests
 const SIDE_CHOICE = (process.env.SIDE ?? "yes").toLowerCase() as "yes" | "no";
 const DRY_RUN = (process.env.DRY_RUN ?? "true") !== "false";
-type AggOrderBook = {
-  asset_id: string;
-  bids?: { price: string; size: string }[];
-  asks?: { price: string; size: string }[];
-};
 
 if (!privateKey) {
   console.error("PRIVATE_KEY env var required");
@@ -89,7 +85,7 @@ async function initClient(): Promise<ClobClient> {
   return new ClobClient(CLOB_HOST, CHAIN_ID, signer, creds, signatureType, funderAddress);
 }
 
-function getBestAsk(book: OrderBook): { price: number; size: number } | null {
+function getBestAsk(book: AggOrderBook): { price: number; size: number } | null {
   if (!book.asks || book.asks.length === 0) return null;
   const sorted = [...book.asks].sort((a, b) => Number(a.price) - Number(b.price));
   const best = sorted[0];
@@ -137,14 +133,13 @@ async function main(): Promise<void> {
     },
     onMessage: async (_c, message) => {
       if (placed) return;
-      const { topic, type, payload } = message as { topic: string; type: string; payload: AggOrderBook };
-      if (topic !== "clob_market" || type !== "agg_orderbook") return;
-      latestBook.set(payload.asset_id, payload);
+      const payload = storeMarketBook(message, latestBook);
+      if (!payload) return;
       const yes = latestBook.get(tokenYes);
       const no = latestBook.get(tokenNo);
       if (!yes || !no) return;
-      const bestAskYes = getBestAsk(yes as any);
-      const bestAskNo = getBestAsk(no as any);
+      const bestAskYes = getBestAsk(yes);
+      const bestAskNo = getBestAsk(no);
       if (!bestAskYes || !bestAskNo) return;
       const combinedAsk = bestAskYes.price + bestAskNo.price;
       console.log(
