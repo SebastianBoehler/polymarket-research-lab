@@ -17,6 +17,8 @@
 
 import { ConnectionStatus, RealTimeDataClient } from "@polymarket/real-time-data-client";
 import type { MarketState, MarketTracker, ClosedPosition } from "./core/types";
+import { MarketStreamValidationError } from "./core/market-stream-payload";
+import { handleMarketMessage } from "./core/market-stream";
 import { fetchCrypto15mMarkets } from "./core/gamma";
 import { getMarketExpiry, formatExpiry, formatDuration, clearScreen, formatUSD, formatPercent } from "./core/utils";
 
@@ -417,39 +419,11 @@ async function main() {
     autoReconnect: true,
     onMessage: (_client, message) => {
       if (!connected) return;
-      const { topic, type, payload } = message as { topic: string; type: string; payload: any };
-
-      if (topic === "clob_market" && type === "agg_orderbook") {
-        const assetId = payload?.asset_id as string;
-        const entry = tokenToMarket.get(assetId);
-        const asks = payload?.asks as { price: string }[] | undefined;
-
-        if (entry && asks?.length) {
-          const bestAsk = Math.min(...asks.map((a) => Number(a.price)));
-          if (entry.side === "yes") entry.market.market.bestAskYes = bestAsk;
-          else entry.market.market.bestAskNo = bestAsk;
-          entry.market.market.priceUpdates++;
-          tryEntry(entry.market.market);
-        }
-      }
-
-      if (topic === "clob_market" && type === "price_change") {
-        const priceChanges = (payload?.pc || payload?.price_changes) as { a: string; ba: string; bb: string }[] | undefined;
-        if (priceChanges) {
-          for (const pc of priceChanges) {
-            const assetId = pc.a || (pc as any).asset_id;
-            const entry = tokenToMarket.get(assetId);
-            if (entry) {
-              const bestAsk = Number(pc.ba || (pc as any).best_ask);
-              if (bestAsk > 0) {
-                if (entry.side === "yes") entry.market.market.bestAskYes = bestAsk;
-                else entry.market.market.bestAskNo = bestAsk;
-                entry.market.market.priceUpdates++;
-                tryEntry(entry.market.market);
-              }
-            }
-          }
-        }
+      try {
+        handleMarketMessage(message, tokenToMarket, tryEntry);
+      } catch (error) {
+        if (!(error instanceof MarketStreamValidationError)) throw error;
+        console.warn(`Rejected market stream message: ${error.message}`);
       }
     },
     onConnect: (connectedClient: RealTimeDataClient) => {
